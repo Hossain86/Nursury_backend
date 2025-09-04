@@ -1,0 +1,30 @@
+# Node.js
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Logs
+logs
+*.log
+
+# dotenv environment variables
+.env
+
+# Vercel build output
+.vercel
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode
+.idea
+
+# Build output
+dist
+build
+
+# Temporary files
+*.tmp
+*.temp
