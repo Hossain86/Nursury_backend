@@ -1,10 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { getUploadSingle, getUploadMultiple, handleMulterError, cloudinary } = require('../middleware/multer');
+const { 
+  getUploadSingle, 
+  getUploadMultiple, 
+  getAvatarUpload, 
+  handleMulterError, 
+  cloudinary,
+  deleteImage 
+} = require('../middleware/multer');
 const { protect, admin } = require('../middleware/authMiddleware');
 
-// Upload single image endpoint
-router.post('/image', protect, admin, (req, res) => {
+// Upload single product image endpoint
+router.post('/product', protect, admin, (req, res) => {
   const uploadSingle = getUploadSingle();
   
   uploadSingle(req, res, (error) => {
@@ -19,23 +26,17 @@ router.post('/image', protect, admin, (req, res) => {
       });
     }
 
-    // Return the uploaded image details
+    // Return successful upload response
     res.json({
       success: true,
-      message: 'Image uploaded successfully',
-      data: {
-        url: req.file.path,
-        publicId: req.file.filename,
-        originalName: req.file.originalname,
-        size: req.file.size,
-        format: req.file.format || req.file.mimetype.split('/')[1]
-      }
+      url: req.file.path,
+      public_id: req.file.filename
     });
   });
 });
 
-// Upload multiple images endpoint
-router.post('/images', protect, admin, (req, res) => {
+// Upload multiple product images endpoint (up to 5)
+router.post('/product/multiple', protect, admin, (req, res) => {
   const uploadMultiple = getUploadMultiple();
   
   uploadMultiple(req, res, (error) => {
@@ -50,19 +51,39 @@ router.post('/images', protect, admin, (req, res) => {
       });
     }
 
-    // Return details of all uploaded images
-    const uploadedImages = req.files.map(file => ({
-      url: file.path,
-      publicId: file.filename,
-      originalName: file.originalname,
-      size: file.size,
-      format: file.format || file.mimetype.split('/')[1]
-    }));
+    // Extract URLs and public IDs from uploaded files
+    const urls = req.files.map(file => file.path);
+    const public_ids = req.files.map(file => file.filename);
 
     res.json({
       success: true,
-      message: `${req.files.length} images uploaded successfully`,
-      data: uploadedImages
+      url: urls,
+      public_id: public_ids
+    });
+  });
+});
+
+// Upload avatar image endpoint
+router.post('/avatar', protect, (req, res) => {
+  const avatarUpload = getAvatarUpload();
+  
+  avatarUpload(req, res, (error) => {
+    if (error) {
+      return handleMulterError(error, req, res, () => {});
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No avatar image file provided'
+      });
+    }
+
+    // Return successful upload response
+    res.json({
+      success: true,
+      url: req.file.path,
+      public_id: req.file.filename
     });
   });
 });
@@ -79,7 +100,6 @@ router.delete('/image/:publicId', protect, admin, async (req, res) => {
       });
     }
 
-    const { deleteImage } = require('../middleware/multer');
     const result = await deleteImage(publicId);
 
     if (result.result === 'ok') {
@@ -96,7 +116,7 @@ router.delete('/image/:publicId', protect, admin, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error deleting image:', error);
+    console.error('❌ Error deleting image:', error);
     res.status(500).json({
       success: false,
       message: 'Error deleting image',
@@ -132,6 +152,7 @@ router.get('/image/:publicId', async (req, res) => {
       });
     }
     
+    console.error('❌ Error retrieving image details:', error);
     res.status(500).json({
       success: false,
       message: 'Error retrieving image details',
