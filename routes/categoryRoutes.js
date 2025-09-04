@@ -1,22 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
+const { getUploadSingle, handleMulterError } = require('../middleware/multer');
 const { protect, admin } = require('../middleware/authMiddleware');
-
-// Configure multer for category image uploads
-const upload = multer({
-    dest: 'uploads/',
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB limit
-    },
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only image files are allowed'), false);
-        }
-    },
-});
 
 // Get all categories
 router.get('/', async (req, res) => {
@@ -64,105 +49,113 @@ router.get('/slug/:slug', async (req, res) => {
 // Admin routes
 
 // Create category
-router.post('/', protect, admin, upload.single('image'), async (req, res) => {
-    try {
-        const Category = require('../models/categoryModel');
-        const cloudinary = require('cloudinary').v2;
-        const { name, description, slug } = req.body;
-
-        // Check if category already exists
-        const existingCategory = await Category.findOne({ 
-            $or: [{ name }, { slug }] 
-        });
-
-        if (existingCategory) {
-            return res.status(400).json({ 
-                message: 'Category with this name or slug already exists' 
-            });
+router.post('/', protect, admin, (req, res) => {
+    const uploadSingle = getUploadSingle();
+    
+    uploadSingle(req, res, async (error) => {
+        if (error) {
+            return handleMulterError(error, req, res, () => {});
         }
 
-        let image = {};
-        if (req.file) {
-            const result = await cloudinary.uploader.upload(req.file.path, {
-                folder: 'amar-nursery/categories'
-            });
-            image = {
-                public_id: result.public_id,
-                url: result.secure_url
-            };
-        }
+        try {
+            const Category = require('../models/categoryModel');
+            const { name, description, slug } = req.body;
 
-        const category = await Category.create({
-            name,
-            slug: slug || name.toLowerCase().replace(/\s+/g, '-'),
-            description,
-            image
-        });
-
-        res.status(201).json(category);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// Update category
-router.put('/:id', protect, admin, upload.single('image'), async (req, res) => {
-    try {
-        const Category = require('../models/categoryModel');
-        const cloudinary = require('cloudinary').v2;
-        
-        const category = await Category.findById(req.params.id);
-        if (!category) {
-            return res.status(404).json({ message: 'Category not found' });
-        }
-
-        const { name, description, slug } = req.body;
-
-        // Check if another category has the same name or slug
-        if (name || slug) {
-            const existingCategory = await Category.findOne({
-                _id: { $ne: req.params.id },
-                $or: [
-                    ...(name ? [{ name }] : []),
-                    ...(slug ? [{ slug }] : [])
-                ]
+            // Check if category already exists
+            const existingCategory = await Category.findOne({ 
+                $or: [{ name }, { slug }] 
             });
 
             if (existingCategory) {
                 return res.status(400).json({ 
-                    message: 'Another category with this name or slug already exists' 
+                    message: 'Category with this name or slug already exists' 
                 });
             }
-        }
 
-        // Update image if provided
-        if (req.file) {
-            // Delete old image from cloudinary if exists
-            if (category.image && category.image.public_id) {
-                await cloudinary.uploader.destroy(category.image.public_id);
+            let image = {};
+            if (req.file) {
+                image = {
+                    public_id: req.file.filename,
+                    url: req.file.path
+                };
             }
 
-            // Upload new image
-            const result = await cloudinary.uploader.upload(req.file.path, {
-                folder: 'amar-nursery/categories'
+            const category = await Category.create({
+                name,
+                slug: slug || name.toLowerCase().replace(/\s+/g, '-'),
+                description,
+                image
             });
-            
-            category.image = {
-                public_id: result.public_id,
-                url: result.secure_url
-            };
+
+            res.status(201).json(category);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    });
+});
+
+// Update category
+router.put('/:id', protect, admin, (req, res) => {
+    const uploadSingle = getUploadSingle();
+    
+    uploadSingle(req, res, async (error) => {
+        if (error) {
+            return handleMulterError(error, req, res, () => {});
         }
 
-        // Update other fields
-        if (name) category.name = name;
-        if (description) category.description = description;
-        if (slug) category.slug = slug;
+        try {
+            const Category = require('../models/categoryModel');
+            const { deleteImage } = require('../middleware/multer');
+            
+            const category = await Category.findById(req.params.id);
+            if (!category) {
+                return res.status(404).json({ message: 'Category not found' });
+            }
 
-        const updatedCategory = await category.save();
-        res.json(updatedCategory);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+            const { name, description, slug } = req.body;
+
+            // Check if another category has the same name or slug
+            if (name || slug) {
+                const existingCategory = await Category.findOne({
+                    _id: { $ne: req.params.id },
+                    $or: [
+                        ...(name ? [{ name }] : []),
+                        ...(slug ? [{ slug }] : [])
+                    ]
+                });
+
+                if (existingCategory) {
+                    return res.status(400).json({ 
+                        message: 'Another category with this name or slug already exists' 
+                    });
+                }
+            }
+
+            // Update image if provided
+            if (req.file) {
+                // Delete old image from cloudinary if exists
+                if (category.image && category.image.public_id) {
+                    await deleteImage(category.image.public_id);
+                }
+
+                // Set new image
+                category.image = {
+                    public_id: req.file.filename,
+                    url: req.file.path
+                };
+            }
+
+            // Update other fields
+            if (name) category.name = name;
+            if (description) category.description = description;
+            if (slug) category.slug = slug;
+
+            const updatedCategory = await category.save();
+            res.json(updatedCategory);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    });
 });
 
 // Delete category
@@ -170,7 +163,7 @@ router.delete('/:id', protect, admin, async (req, res) => {
     try {
         const Category = require('../models/categoryModel');
         const Product = require('../models/productModel');
-        const cloudinary = require('cloudinary').v2;
+        const { deleteImage } = require('../middleware/multer');
         
         const category = await Category.findById(req.params.id);
         if (!category) {
@@ -187,7 +180,7 @@ router.delete('/:id', protect, admin, async (req, res) => {
 
         // Delete image from cloudinary if exists
         if (category.image && category.image.public_id) {
-            await cloudinary.uploader.destroy(category.image.public_id);
+            await deleteImage(category.image.public_id);
         }
 
         await category.remove();
